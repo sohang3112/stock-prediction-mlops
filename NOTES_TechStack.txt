@@ -1,0 +1,28 @@
+ML Ops Project
+
+Git + GitHub(proper commit history)
+Airflow, Spark (pipeline / orchestration)
+Mlflow (experiment tracking)
+DVC with Google Drive remote (dataset / model versioning)
+FastAPI
+Docker
+Github Actions CI/CD
+
+ML Logging and Monitoring (undecided) - at least one of (should be doable with existing tech stack):
+* Promestheus (monitoring, time series) -- NOT IN FAVOUR OF YET ANOTHER TOOL
+* Kibana (data visualization UI for ElasticSearch) -- RULED OUT, NOT USING ELASTICSEARCH
+* Drift Detection (UNSURE)
+* Performance Monitoring (UNSURE)
+* API latency (fastapi) / prediction logging (UNSURE)
+
+Training & comparison of at least 2 models must be done 
+-- model selection I would prefer as simple as possible.
+After all focus is on the ML Ops pipeline, not really on actual models (though they will likely still ask about the models themselves)
+
+Project Evaluation (10-min demo video, report, code & docs, viva) based NOT on how much code, but on:
+* system understanding, reproducibility, deployment practices, debugging ability, architectural decisions
+* viva may ask: explain (architecture, docker etc.), modify code live, trigger pipeline manually, demo monitoring
+
+------
+
+4 group members, selected topic: Stock Market Prediction 
