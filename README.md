@@ -1,3 +1,13 @@
+# Stock Predictions - ML Ops Project
+
+![Pre-Commit](https://github.com/sohang3112/stock-prediction-mlops/actions/workflows/pre-commit.yaml/badge.svg)
+
+```bash
+$ pip install pre-commit
+$ pre-commit install
+$ pre-commit run --all-files
+```
+
 ```bash
 $ docker build -t stock_prediction .
 $ docker container run --publish 8000:8000 stock_prediction
