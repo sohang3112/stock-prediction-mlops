@@ -2,25 +2,36 @@
 
 ![Pre-Commit](https://github.com/sohang3112/stock-prediction-mlops/actions/workflows/pre-commit.yaml/badge.svg)
 
-Tech Stack & Other Project Requirements:
+Tech Stack:
 - [x] Git + GitHub
-- [ ] Spark (actual ML training)
+- [x] Spark
 - [ ] Airflow (pipeline orchestration)
 - [ ] Mlflow (experiment tracking)
 - [x] Git LFS
-- [x] FastAPI
+- [ ] FastAPI -- only a dummy api added right now
 - [x] Docker
 - [x] Github Actions CI/CD
 
+Other Requirements:
+- [ ] Logging & Monitoring: at least one of:
+   * ML Drift Detection
+   * ML Performance Monitoring
+   * ML API latency / prediction logging
+- [ ] at least 2 models (good enough). Currently only one baseline model exists which is very bad (negative R^2 score!)
+
 Dataset description: Nifty 100 index historical price data of each minute (2015 - 2026)
 
-## Install
+## Install & Run
+
+One-time setup after cloning repo:
 
 ```bash
+$ git lfs install
 $ pip install pre-commit
 $ pre-commit install
-$ pre-commit run --all-files
 ```
+
+Main Docker image (for ML prediction) - starts FastAPI server:
 
 ```bash
 $ docker build -t stock_prediction .
@@ -39,10 +50,7 @@ $ docker container run --publish 8000:8000 stock_prediction
     Documentation at http://0.0.0.0:8000/docs
 ```
 
-```bash
-git lfs install
-git lfs track **/*.csv    # track data (NIFTY 100_minute.csv is 55 MB)
-```
+NOTE: To run training script, I'm using Dev Containers extension in VS Code (which builds & runs Dockerfile and connects VS Code to it as a remote, so directly working in terminal inside it!)
 
 ## Helpful Resources
 

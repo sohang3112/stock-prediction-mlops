@@ -253,6 +253,6 @@ if __name__ == "__main__":
 
 # Test RMSE: 3097.647321
 # Test MAE: 2836.951832
-# Test R2: -5.196523
+# Test R2: -5.196523   <---- negative R^2 score is very bad!
 
 # Example predicted next-minute close (from the latest available row): 22118.7324
