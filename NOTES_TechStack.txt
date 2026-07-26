@@ -3,7 +3,7 @@ ML Ops Project
 Git + GitHub(proper commit history)
 Airflow, Spark (pipeline / orchestration)
 Mlflow (experiment tracking)
-DVC with Google Drive remote (dataset / model versioning)
+Git LFS (originally tried DVC with Google Drive remote but that doesn't work, and most other DVC remotes are paid cloud)
 FastAPI
 Docker
 Github Actions CI/CD
