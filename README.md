@@ -6,18 +6,23 @@ Tech Stack:
 - [x] Git + GitHub
 - [x] Spark
 - [ ] Airflow (pipeline orchestration)
-- [ ] Mlflow (experiment tracking)
+- [x] Mlflow (experiment tracking)
 - [x] Git LFS
-- [ ] FastAPI -- only a dummy api added right now
+- [x] FastAPI
 - [x] Docker
 - [x] Github Actions CI/CD
 
 Other Requirements:
-- [ ] Logging & Monitoring: at least one of:
-   * ML Drift Detection
-   * ML Performance Monitoring
-   * ML API latency / prediction logging
-- [ ] at least 2 models (good enough). Currently only one baseline model exists which is very bad (negative R^2 score!)
+- Logging & Monitoring: at least one of:
+  - [ ] ML Drift Detection
+  - [ ] ML Performance Monitoring
+  - [x] ML API latency / prediction logging
+- [ ] better training script: at least 2 models (good enough). Currently only one baseline model exists which is very bad (negative R^2 score!)
+- [ ] Ensure training script has Data Preprocessing which:
+  * handles missing data (if applicable)
+  * cleans data
+  * feature engineering (if required)
+  * handles class imbalance or data augmentation (if applicable)
 
 Dataset description: Nifty 100 index historical price data of each minute (2015 - 2026)
 
