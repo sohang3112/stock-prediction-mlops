@@ -19,6 +19,8 @@ This script will:
 # (pyspark) WARN WindowExec: No Partition Defined for Window operation! Moving all data to a single partition, this can cause serious performance degradation.
 # (pyspark) Not enough space to cache rdd_100_0 in memory! (computed 318.1 MiB so far)
 
+import mlflow
+import mlflow.spark
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.feature import StandardScaler, VectorAssembler
@@ -143,16 +145,34 @@ def time_split(df, train_fraction=0.8):
 
 def train_and_evaluate(train_df, test_df, assembler, scaler):
     model_out = "data/output/"
+
+    num_trees = 20
+    max_depth = 5
+    feature_subset_strategy = "sqrt"
+    subsampling_rate = 0.7
+
     rf = RandomForestRegressor(
         featuresCol="features",
         labelCol="label",
         predictionCol="prediction",
-        maxDepth=5,
-        numTrees=20,
-        featureSubsetStrategy="sqrt",
-        subsamplingRate=0.7,
+        maxDepth=max_depth,
+        numTrees=num_trees,
+        featureSubsetStrategy=feature_subset_strategy,
+        subsamplingRate=subsampling_rate,
     )
     pipeline = Pipeline(stages=[assembler, scaler, rf])
+
+    mlflow.log_params(
+        {
+            "model_type": "RandomForestRegressor",
+            "num_trees": num_trees,
+            "max_depth": max_depth,
+            "feature_subset_strategy": feature_subset_strategy,
+            "subsampling_rate": subsampling_rate,
+            "train_fraction": 0.8,
+            "features": assembler.getInputCols(),
+        }
+    )
 
     model = pipeline.fit(train_df)
 
@@ -178,9 +198,14 @@ def train_and_evaluate(train_df, test_df, assembler, scaler):
     mae = evaluator_mae.evaluate(preds)
     r2 = evaluator_r2.evaluate(preds)
 
+    mlflow.log_metrics({"rmse": rmse, "mae": mae, "r2": r2})
+
     print(f"Test RMSE: {rmse:.6f}")
     print(f"Test MAE: {mae:.6f}")
     print(f"Test R2: {r2:.6f}")
+
+    mlflow.spark.log_model(model, artifact_path="model")
+    print("Model logged to MLflow")
 
     # Save pipeline model
     model.write().overwrite().save(model_out)
@@ -218,34 +243,42 @@ def predict_single(model, prev_row: dict, current_row: dict, spark):
 def main():
     spark = create_spark()
 
+    mlflow.set_experiment("nifty-stock-prediction")
+
     df = load_data(spark)
     df, assembler, scaler = featurize(df)
 
     train_df, test_df = time_split(df, train_fraction=0.8)
 
-    print(f"Training rows: {train_df.count()}, Test rows: {test_df.count()}")
+    with mlflow.start_run(run_name="rf_baseline"):
+        train_rows = train_df.count()
+        test_rows = test_df.count()
+        print(f"Training rows: {train_rows}, Test rows: {test_rows}")
+        mlflow.log_metrics({"train_rows": train_rows, "test_rows": test_rows})
 
-    model = train_and_evaluate(train_df, test_df, assembler, scaler)
+        model = train_and_evaluate(train_df, test_df, assembler, scaler)
 
-    # Demonstrate single-row prediction using the last known row as previous
-    last_two = df.sort(F.col("ts").desc()).limit(2).collect()
-    if len(last_two) >= 2:
-        current = {
-            c: last_two[0][c]
-            for c in ["open", "high", "low", "close", "volume"]
-            if c in df.columns
-        }
-        prev = {
-            c: last_two[1][c]
-            for c in ["open", "high", "low", "close", "volume"]
-            if c in df.columns
-        }
-        pred = predict_single(model, prev, current, spark)
-        print(
-            f"Example predicted next-minute close (from the latest available row): {pred:.4f}"
-        )
-    else:
-        print("Not enough rows to demonstrate single-row prediction example.")
+        # Demonstrate single-row prediction using the last known row as previous
+        last_two = df.sort(F.col("ts").desc()).limit(2).collect()
+        if len(last_two) >= 2:
+            current = {
+                c: last_two[0][c]
+                for c in ["open", "high", "low", "close", "volume"]
+                if c in df.columns
+            }
+            prev = {
+                c: last_two[1][c]
+                for c in ["open", "high", "low", "close", "volume"]
+                if c in df.columns
+            }
+            pred = predict_single(model, prev, current, spark)
+            print(
+                f"Example predicted next-minute close (from the latest available row): {pred:.4f}"
+            )
+        else:
+            print("Not enough rows to demonstrate single-row prediction example.")
+
+        print(f"MLflow run ID: {mlflow.active_run().info.run_id}")
 
 
 if __name__ == "__main__":
