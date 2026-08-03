@@ -64,12 +64,7 @@ def load_data(spark):
 
 
 def featurize(df):
-    # Repartition the data before window operations so Spark can execute them
-    # without falling back to a single partition on this small CSV.
-    df = df.repartition(4)
-
-    # Window ordered by timestamp. A constant partition key keeps the window
-    # logic correct and avoids Spark's "No Partition Defined" warning.
+    # Window ordered by timestamp.
     win = Window.partitionBy(F.lit("all")).orderBy("ts")
 
     # Lags (previous minute values)
@@ -77,42 +72,51 @@ def featurize(df):
         if c in df.columns:
             df = df.withColumn(f"lag_{c}", F.lag(F.col(c), 1).over(win))
 
+    # Stationary Features: Differences between current and previous values
+    for c in ["open", "high", "low", "close", "volume"]:
+        if f"lag_{c}" in df.columns:
+            df = df.withColumn(f"diff_{c}", F.col(c) - F.col(f"lag_{c}"))
+
     # Rolling features: 5- and 10- minute averages of close
     for window_size in (5, 10):
+        ma_col = f"ma_close_{window_size}"
         df = df.withColumn(
-            f"ma_close_{window_size}",
+            ma_col,
             F.avg(F.col("close")).over(
                 Window.partitionBy(F.lit("all"))
                 .orderBy("ts")
                 .rowsBetween(-window_size + 1, 0)
             ),
         )
+        # Stationary feature: Difference from moving average
+        df = df.withColumn(f"diff_ma_{window_size}", F.col("close") - F.col(ma_col))
 
-    # Simple returns based on previous close
+    # Simple returns based on previous close (already stationary)
     df = df.withColumn(
         "ret_prev", (F.col("close") - F.col("lag_close")) / F.col("lag_close")
     )
 
-    # Label: next minute close
-    df = df.withColumn("label", F.lead(F.col("close"), 1).over(win))
+    # Label: next minute price CHANGE (lead(close) - current close)
+    # We also keep lead(close) as 'label_original' for evaluation
+    df = df.withColumn("label_original", F.lead(F.col("close"), 1).over(win))
+    df = df.withColumn("label", F.col("label_original") - F.col("close"))
 
     # Drop rows with nulls (arising from lags, rolling windows, or label)
-    df = df.na.drop(subset=["lag_close", "lag_open", "lag_high", "lag_low", "label"])
+    df = df.na.drop(
+        subset=["lag_close", "lag_open", "lag_high", "lag_low", "label", "diff_close"]
+    )
 
-    # Feature list
-    feature_cols = []
-    for c in [
-        "lag_open",
-        "lag_high",
-        "lag_low",
-        "lag_close",
-        "lag_volume",
-        "ma_close_5",
-        "ma_close_10",
+    # Feature list: Use differences and stationary metrics
+    feature_cols = [
+        "diff_open",
+        "diff_high",
+        "diff_low",
+        "diff_close",
+        "diff_volume",
+        "diff_ma_5",
+        "diff_ma_10",
         "ret_prev",
-    ]:
-        if c in df.columns:
-            feature_cols.append(c)
+    ]
 
     assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_assembled")
     scaler = StandardScaler(
@@ -146,8 +150,8 @@ def time_split(df, train_fraction=0.8):
 def train_and_evaluate(train_df, test_df, assembler, scaler):
     model_out = "data/output/"
 
-    num_trees = 20
-    max_depth = 5
+    num_trees = 50
+    max_depth = 10
     feature_subset_strategy = "sqrt"
     subsampling_rate = 0.7
 
@@ -184,14 +188,19 @@ def train_and_evaluate(train_df, test_df, assembler, scaler):
         )
 
     preds = model.transform(test_df)
+
+    # Reconstruct absolute price prediction: current close + predicted change
+    preds = preds.withColumn("final_prediction", F.col("close") + F.col("prediction"))
+
+    # Evaluate on the absolute price (label_original vs final_prediction)
     evaluator_rmse = RegressionEvaluator(
-        labelCol="label", predictionCol="prediction", metricName="rmse"
+        labelCol="label_original", predictionCol="final_prediction", metricName="rmse"
     )
     evaluator_mae = RegressionEvaluator(
-        labelCol="label", predictionCol="prediction", metricName="mae"
+        labelCol="label_original", predictionCol="final_prediction", metricName="mae"
     )
     evaluator_r2 = RegressionEvaluator(
-        labelCol="label", predictionCol="prediction", metricName="r2"
+        labelCol="label_original", predictionCol="final_prediction", metricName="r2"
     )
 
     rmse = evaluator_rmse.evaluate(preds)
@@ -218,26 +227,43 @@ def predict_single(model, prev_row: dict, current_row: dict, spark):
     # Build a single-row DataFrame with the features expected by the pipeline.
     # prev_row and current_row are dict-like providing the raw OHLCV and ts if available.
     data = {}
-    # lags come from prev_row
+
+    # Current values
+    for c in ["open", "high", "low", "close", "volume"]:
+        data[c] = float(current_row.get(c, 0.0))
+
+    # Lags come from prev_row
     for c in ["open", "high", "low", "close", "volume"]:
         data[f"lag_{c}"] = (
-            float(prev_row.get(c, None)) if prev_row.get(c, None) is not None else None
+            float(prev_row.get(c, data[c]))
+            if prev_row.get(c, None) is not None
+            else data[c]
         )
 
-    # current close is current_row['close'] and will be used to compute ma if needed; for baseline we set ma fields equal to current close
-    close_now = float(current_row.get("close", data.get("lag_close")))
-    data["ma_close_5"] = close_now
-    data["ma_close_10"] = close_now
+    # diff_* features
+    for c in ["open", "high", "low", "close", "volume"]:
+        data[f"diff_{c}"] = data[c] - data[f"lag_{c}"]
+
+    # For MA diffs in single-row prediction, we approximate with the current row
+    # (In a real system, we would pass a window of historical rows)
+    data["diff_ma_5"] = 0.0
+    data["diff_ma_10"] = 0.0
+
     # ret_prev
-    if data.get("lag_close") is not None:
-        data["ret_prev"] = (close_now - data["lag_close"]) / data["lag_close"]
+    if data.get("lag_close") != 0:
+        data["ret_prev"] = (data["close"] - data["lag_close"]) / data["lag_close"]
     else:
         data["ret_prev"] = 0.0
 
     # Create Spark DataFrame
     row_df = spark.createDataFrame([data])
-    pred = model.transform(row_df).select("prediction").collect()[0][0]
-    return pred
+
+    # Predict the CHANGE
+    pred_change = model.transform(row_df).select("prediction").collect()[0][0]
+
+    # Reconstruct the absolute price
+    final_pred = data["close"] + pred_change
+    return final_pred
 
 
 def main():
